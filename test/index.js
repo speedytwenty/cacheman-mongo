@@ -3,21 +3,31 @@ import Cache from '../lib/index';
 import assert from 'assert';
 import crypto from 'crypto';
 import fs from 'fs';
+import { MongoMemoryServer } from 'mongodb-memory-server';
 
-const uri = 'mongodb://127.0.0.1:27017/cacheman-mongo-test'
 let cache;
+let uri;
+const mongod = new MongoMemoryServer();
+
+before(function(done) {
+  mongod.getUri().then((dbUri) => {
+    uri = dbUri;
+    done();
+  });
+});
+
+after(function(done){
+  mongod.stop().then(() => done());
+});
 
 describe('cacheman-mongo', function () {
-
-  before(function(done){
-    cache = new Cache({ host: '127.0.0.1', port: 27017, database: 'cacheman-mongo-test' });
+  before(function(done) {
+    cache = new Cache(uri);
     done();
   });
 
-  after(function(done){
-    cache.clear(function() {
-      cache.client.dropDatabase(done);
-    });
+  after(function (done) {
+    cache.clear(done);
   });
 
   it('should have main methods', function () {
@@ -185,17 +195,17 @@ describe('cacheman-mongo', function () {
   });
 
   describe('cacheman-mongo compression', function () {
-
-    before(function(done){
-      cache = new Cache({ compression: true });
+    before(function(done) {
+      cache = new Cache(uri, { compression: true });
       done();
     });
 
-    after(function(done){
+    after(function (done) {
       cache.clear(done);
     });
 
     it('should store compressable item compressed', function (done) {
+      cache = new Cache(uri, { compression: true });
       let value = Date.now().toString();
 
       cache.set('test1', new Buffer(value), function (err) {
