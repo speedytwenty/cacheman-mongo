@@ -5,9 +5,9 @@ import crypto from 'crypto';
 import fs from 'fs';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 
-let cache;
 let uri;
 const mongod = new MongoMemoryServer();
+const instances = [];
 
 before(function(done) {
   mongod.getUri().then((dbUri) => {
@@ -17,17 +17,19 @@ before(function(done) {
 });
 
 after(function(done){
-  mongod.stop().then(() => done());
+  Promise.all(instances.map((instance) => new Promise((resolve, reject) => {
+    instance.close((err, res) => { err ? reject(err) : resolve(res); });
+  }))).then(() => {
+    mongod.stop().then(() => done());
+  });
 });
 
 describe('cacheman-mongo', function () {
+  let cache;
   before(function(done) {
     cache = new Cache(uri);
+    instances.push(cache);
     done();
-  });
-
-  after(function (done) {
-    cache.clear(done);
   });
 
   it('should have main methods', function () {
@@ -135,6 +137,7 @@ describe('cacheman-mongo', function () {
 
   it('should allow passing mongodb connection string', function (done) {
     cache = new Cache(uri);
+    instances.push(cache);
     cache.set('test8', { a: 1 }, function (err) {
       if (err) return done(err);
       cache.get('test8', function (err, data) {
@@ -145,10 +148,27 @@ describe('cacheman-mongo', function () {
     });
   });
 
-  it('should allow passing mongo db instance as first argument', function (done) {
-    MongoClient.connect(uri, function (err, db) {
+  it('should allow passing mongo client instance as first argument', function (done) {
+    MongoClient.connect(uri, { useUnifiedTopology: true }, function (err, client) {
       if (err) return done(err);
-      cache = new Cache(db);
+      cache = new Cache(client);
+      instances.push(cache);
+      cache.set('test9', { a: 1 }, function (err) {
+        if (err) return done(err);
+        cache.get('test9', function (err, data) {
+          if (err) return done(err);
+          assert.equal(data.a, 1);
+          done();
+        });
+      });
+    });
+  });
+
+  it('should allow passing mongo db instance as first argument', function (done) {
+    MongoClient.connect(uri, { useUnifiedTopology: true }, function (err, client) {
+      if (err) return done(err);
+      cache = new Cache(client.db('cacheman'));
+      instances.push(cache);
       cache.set('test9', { a: 1 }, function (err) {
         if (err) return done(err);
         cache.get('test9', function (err, data) {
@@ -161,12 +181,13 @@ describe('cacheman-mongo', function () {
   });
 
   it('should sllow passing mongo db instance as client in object', function (done) {
-    MongoClient.connect(uri, function (err, db) {
+    MongoClient.connect(uri, { useUnifiedTopology: true }, function (err, client) {
       if (err) return done(err);
-      cache = new Cache({ client: db });
-      cache.set('test9', { a: 1 }, function (err) {
+      cache = new Cache({ client: client.db('cacheman') });
+      instances.push(cache);
+      cache.set('test10', { a: 1 }, function (err) {
         if (err) return done(err);
-        cache.get('test9', function (err, data) {
+        cache.get('test10', function (err, data) {
           if (err) return done(err);
           assert.equal(data.a, 1);
           done();
@@ -177,14 +198,14 @@ describe('cacheman-mongo', function () {
 
   it('should get the same value subsequently', function(done) {
     let val = 'Test Value';
-    cache.set('test', 'Test Value', function() {
-      cache.get('test', function(err, data) {
+    cache.set('test11', 'Test Value', function() {
+      cache.get('test11', function(err, data) {
         if (err) return done(err);
         assert.strictEqual(data, val);
-        cache.get('test', function(err, data) {
+        cache.get('test11', function(err, data) {
           if (err) return done(err);
           assert.strictEqual(data, val);
-          cache.get('test', function(err, data) {
+          cache.get('test11', function(err, data) {
             if (err) return done(err);
              assert.strictEqual(data, val);
              done();
@@ -197,20 +218,18 @@ describe('cacheman-mongo', function () {
   describe('cacheman-mongo compression', function () {
     before(function(done) {
       cache = new Cache(uri, { compression: true });
+      instances.push(cache);
       done();
-    });
-
-    after(function (done) {
-      cache.clear(done);
     });
 
     it('should store compressable item compressed', function (done) {
       cache = new Cache(uri, { compression: true });
+      instances.push(cache);
       let value = Date.now().toString();
 
-      cache.set('test1', new Buffer(value), function (err) {
+      cache.set('compression-test1', Buffer.from(value), function (err) {
         if (err) return done(err);
-        cache.get('test1', function (err, data) {
+        cache.get('compression-test1', function (err, data) {
           if (err) return done(err);
           assert.equal(data.toString(), value);
           done();
@@ -221,9 +240,9 @@ describe('cacheman-mongo', function () {
     it('should store non-compressable item normally', function (done) {
       let value = Date.now().toString();
 
-      cache.set('test1', value, function (err) {
+      cache.set('compression-test2', value, function (err) {
         if (err) return done(err);
-        cache.get('test1', function (err, data) {
+        cache.get('compression-test2', function (err, data) {
           if (err) return done(err);
           assert.equal(data, value);
           done();
@@ -235,9 +254,9 @@ describe('cacheman-mongo', function () {
       let value = fs.readFileSync('./test/large.bin'), // A file larger than the 16mb MongoDB document size limit
           md5 = function(d){ return crypto.createHash('md5').update(d).digest('hex'); };
 
-      cache.set('test1', value, function (err) {
+      cache.set('compression-test3', value, function (err) {
         if (err) return done(err);
-        cache.get('test1', function (err, data) {
+        cache.get('compression-test3', function (err, data) {
           if (err) return done(err);
           assert.equal(md5(data), md5(value));
           done();
