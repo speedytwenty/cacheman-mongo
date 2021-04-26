@@ -6,7 +6,9 @@ import fs from 'fs';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 
 let uri;
-const mongod = new MongoMemoryServer();
+const mongod = new MongoMemoryServer({
+  instance: { args: ['--notablescan'] },
+});
 const instances = [];
 
 before(function(done) {
